@@ -146,6 +146,13 @@ nav.tabs button[aria-current="page"]{color:var(--accent);background:var(--accent
 .warn{font-size:12px;font-weight:700;color:var(--sun);background:var(--sun-soft);border-radius:6px;padding:2px 7px;margin-top:3px;display:inline-block}
 .cand{display:flex;gap:10px;align-items:center;background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 body.landing header.top,body.landing #main,body.landing nav.tabs{display:none!important}
+.mechip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;border-radius:999px;font-size:13px;font-weight:700;margin-bottom:6px;background:var(--surface);max-width:150px}
+.mechip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mechip .av{width:24px;height:24px;font-size:11px}
+.mechip.none{color:var(--bad);padding:6px 12px}
+.item.cur{background:var(--accent-soft)}
+.settlebtn{flex-basis:100%;margin-top:4px;background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.settlebtn.armed{background:var(--accent);color:var(--accent-ink)}
 .prow{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
 .prow:first-child{border-top:0}
 .itrow{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
@@ -163,7 +170,7 @@ body.landing header.top,body.landing #main,body.landing nav.tabs{display:none!im
       <h1 id="h-name">Új utazás</h1>
       <div class="sub" id="h-sub">Add meg az utazást a Csapat fülön</div>
     </div>
-    <div class="total"><div class="label">Összesen</div><div class="num" id="h-total">0</div></div>
+    <div class="total"><button id="me-chip" class="mechip" hidden aria-label="Ki vagy? Koppints a váltáshoz"></button><div class="label">Összesen</div><div class="num" id="h-total">0</div></div>
   </div>
 </header>
 
@@ -188,6 +195,11 @@ body.landing header.top,body.landing #main,body.landing nav.tabs{display:none!im
       <h2>Ki kinek utal</h2>
       <div class="note">A legkevesebb utalással rendezi a tartozásokat.</div>
       <div id="xfer-list" class="stack"></div>
+      <div class="note">Ha valaki átutalta a pénzt, nyomd meg a <b>Kifizetve ✓</b> gombot, és lekerül a listáról.</div>
+    </div>
+    <div class="stack" id="settled-box" hidden>
+      <span class="label">Már kifizetve</span>
+      <div class="list" id="settled-list"></div>
     </div>
     <div class="stack">
       <h2>Egyenlegek</h2>
@@ -437,9 +449,12 @@ function payerFor(id,cat){
     seen.add(cur);cur=p.coveredBy;
   }
 }
+const realExp=()=>expenses.filter(e=>e.mode!=='settle');
+const settles=()=>expenses.filter(e=>e.mode==='settle');
 function balances(){
   const b={};trip.people.forEach(p=>b[p.id]={paid:0,share:0,covers:{}});
   for(const e of expenses){
+    if(e.mode==='settle'){const to=(e.split||[])[0];if(b[e.payer]&&b[to]){b[e.payer].paid+=+e.amount||0;b[to].share+=+e.amount||0}continue}
     if(!b[e.payer])continue;const sh=expShares(e);const ids=Object.keys(sh).filter(id=>b[id]);if(!ids.length)continue;
     b[e.payer].paid+=+e.amount||0;
     ids.forEach(id=>{const t=payerFor(id,e.cat);if(!b[t])return;b[t].share+=sh[id];if(t!==id)b[t].covers[id]=(b[t].covers[id]||0)+sh[id]});
@@ -599,7 +614,7 @@ function render(){
   $('#h-name').textContent=trip.name||'Új utazás';
   const subParts=[trip.destination,(trip.start&&trip.end)?`${fmtDate(trip.start,{month:'short',day:'numeric'})} – ${fmtDate(trip.end,{month:'short',day:'numeric'})}`:'',trip.people.length?`${trip.people.length} fő`:''].filter(Boolean);
   $('#h-sub').textContent=subParts.length?subParts.join(' · '):'Add meg az utazást a Csapat fülön';
-  const total=expenses.reduce((s,e)=>s+(+e.amount||0),0);
+  const total=realExp().reduce((s,e)=>s+(+e.amount||0),0);
   $('#h-total').textContent=money(total);
   $('#readonly').hidden=canWrite;
   document.querySelectorAll('[data-write]').forEach(el=>el.disabled=!canWrite);
@@ -608,14 +623,15 @@ function render(){
 }
 
 function renderExpenses(total){
-  $('#st-count').textContent=expenses.length;
+  const rx=realExp();
+  $('#st-count').textContent=rx.length;
   $('#st-avg').textContent=trip.people.length?money(total/trip.people.length):'–';
-  const b=balances();let top=null;for(const [id,v] of Object.entries(b))if(v.paid>0&&(!top||v.paid>b[top].paid))top=id;
+  const paid={};rx.forEach(e=>paid[e.payer]=(paid[e.payer]||0)+(+e.amount||0));let top=null;for(const [id,v] of Object.entries(paid))if(person(id)&&v>0&&(!top||v>paid[top]))top=id;
   $('#st-top').textContent=top?pname(top):'–';
   const el=$('#exp-list');
   if(!trip.people.length){el.innerHTML=`<div class="empty"><strong>Először add hozzá az utazókat</strong>A Csapat fülön írd be a haverok nevét, utána itt rögzíthetitek a költségeket.</div>`;return}
-  if(!expenses.length){el.innerHTML=`<div class="empty"><strong>Még nincs költség</strong>Nyomj az „Új költség” gombra. Minden tételnél kiválaszthatod, kik között oszlik el.</div>`;return}
-  const groups={};[...expenses].sort((a,c)=>(c.date||'').localeCompare(a.date||'')||(c.createdAt||0)-(a.createdAt||0)).forEach(e=>(groups[e.date||'']??=[]).push(e));
+  if(!rx.length){el.innerHTML=`<div class="empty"><strong>Még nincs költség</strong>Nyomj az „Új költség” gombra. Minden tételnél kiválaszthatod, kik között oszlik el.</div>`;return}
+  const groups={};[...rx].sort((a,c)=>(c.date||'').localeCompare(a.date||'')||(c.createdAt||0)-(a.createdAt||0)).forEach(e=>(groups[e.date||'']??=[]).push(e));
   el.innerHTML=Object.entries(groups).map(([d,list])=>`
     <div class="day-h"><span class="label">${esc(d?fmtDate(d):'Dátum nélkül')}</span><span class="num muted" style="font-size:13px">${money(list.reduce((s,e)=>s+(+e.amount||0),0))}</span></div>
     <div class="list">${list.map(e=>{
@@ -631,7 +647,11 @@ function renderSettle(){
   const xl=$('#xfer-list');
   if(!trip.people.length||!expenses.length)xl.innerHTML=`<div class="empty"><strong>Nincs mit elszámolni</strong>Amint rögzítetek költséget, itt látjátok, ki kinek mennyit utaljon.</div>`;
   else if(!x.length)xl.innerHTML=`<div class="empty"><strong>Mindenki kvittben van</strong>Senkinek nem kell utalnia.</div>`;
-  else xl.innerHTML=x.map(t=>`<div class="ticket">${av(t.from)}<div class="arrow"><b style="color:var(--ink)">${esc(pname(t.from))}</b> utal neki: <b style="color:var(--ink)">${esc(pname(t.to))}</b></div><div class="amt">${money(t.amt)}</div></div>`).join('');
+  else xl.innerHTML=x.map(t=>`<div class="ticket" style="flex-wrap:wrap">${av(t.from)}<div class="arrow"><b style="color:var(--ink)">${esc(pname(t.from))}</b> utal neki: <b style="color:var(--ink)">${esc(pname(t.to))}</b></div><div class="amt">${money(t.amt)}</div>
+      <button class="settlebtn" data-write data-settle="${esc(t.from)}|${esc(t.to)}|${t.amt}">Kifizetve ✓</button></div>`).join('');
+  const st=settles().sort((a,c)=>(c.createdAt||0)-(a.createdAt||0));
+  $('#settled-box').hidden=!st.length;
+  $('#settled-list').innerHTML=st.map(e=>`<div class="item" style="cursor:default">${av(e.payer)}<div class="main"><div class="t">${esc(pname(e.payer))} → ${esc(pname((e.split||[])[0]))}</div><div class="s">${esc(e.date?fmtDate(e.date):'')} · visszautalva</div></div><div class="amt">${money(+e.amount)}</div><button class="ghost" data-write data-unsettle="${esc(e.id)}" style="padding:4px 8px;font-size:12px">Visszavonás</button></div>`).join('');
   const max=Math.max(1,...Object.values(b).map(v=>Math.abs(v.paid-v.share)));
   $('#bal-list').innerHTML=trip.people.length?trip.people.map(p=>{const v=b[p.id];const d=v.paid-v.share;const w=Math.min(50,Math.abs(d)/max*50);
     const cov=Object.entries(v.covers).map(([id,a])=>`${esc(pname(id))} része ${money(a)}`).join(', ');
@@ -1074,6 +1094,19 @@ $('#r-list').onclick=async e=>{
   await save(()=>db.collection('stops').doc().set({day:+$('#r-day').value||1,time:'',title:p.name,note:p.desc?.slice(0,90)||'',lat:p.lat,lng:p.lng,createdAt:Date.now()}),`Hozzáadva: ${dayLabel(+$('#r-day').value||1)}`);
 };
 
+/* ---------- kifizetések rögzítése ---------- */
+$('#xfer-list').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-settle]');if(!b)return;
+  if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Biztosan átutalta? Koppints újra';setTimeout(()=>{if(b.isConnected){b.classList.remove('armed');b.textContent='Kifizetve ✓'}},3500);return}
+  const [from,to,amt]=b.dataset.settle.split('|');b.disabled=true;
+  await save(()=>db.collection('expenses').doc().set({mode:'settle',title:'Visszautalás',amount:Math.round(+amt*100)/100,payer:from,split:[to],cat:'egyeb',date:today(),createdAt:Date.now()}),`${pname(from)} kifizette, rendezve`);
+});
+$('#settled-list').addEventListener('click',e=>{
+  const b=e.target.closest('[data-unsettle]');if(!b)return;
+  if(!b.classList.contains('armed')){b.classList.add('armed');b.textContent='Biztos?';setTimeout(()=>{if(b.isConnected){b.classList.remove('armed');b.textContent='Visszavonás'}},3000);return}
+  save(()=>db.collection('expenses').doc(b.dataset.unsettle).delete(),'Visszavonva, újra tartozásként szerepel');
+});
+
 /* ---------- indulás: Firebase ---------- */
 const FB_CONFIG={
   apiKey:"AIzaSyBkuwuryL9xHLwYVpS8_5OXBG6yCkDKk8Q",
@@ -1097,16 +1130,24 @@ const tripLink=()=>location.origin+location.pathname+'#'+TID;
 function updateMe(){
   if(!TID)return;const me=person(lsGet('ut-me-'+TID));
   $('#me-line').textContent=me?`Ezen a telefonon te vagy: ${me.name}`:'Még nem választottad ki, ki vagy.';
+  const chip=$('#me-chip');chip.hidden=!trip.people.length;
+  chip.className='mechip'+(me?'':' none');
+  chip.innerHTML=me?`${av(me.id)}<span class="nm">${esc(me.name)}</span><span aria-hidden="true">▾</span>`:'Ki vagy? ▾';
 }
 let whoSkipped=false;
-function askWho(){
-  if(whoSkipped||!trip.people.length||person(lsGet('ut-me-'+TID)))return;
-  $('#who-list').innerHTML=trip.people.map(p=>`<button class="item" data-who="${esc(p.id)}">${av(p.id)}<div class="main"><div class="t">${esc(p.name)}</div></div></button>`).join('');
+function askWho(force){
+  const cur=lsGet('ut-me-'+TID);
+  if(!trip.people.length)return;
+  if(!force&&(whoSkipped||person(cur)))return;
+  $('#who-list').innerHTML=trip.people.map(p=>`<button class="item${p.id===cur?' cur':''}" data-who="${esc(p.id)}">${av(p.id)}<div class="main"><div class="t">${esc(p.name)}</div></div>${p.id===cur?'<span class="link">jelenleg</span>':''}</button>`).join('');
+  $('#who-skip').textContent=person(cur)?'Mégse':'Most kihagyom';
   $('#who-bg').hidden=false;
 }
 $('#who-list').onclick=e=>{const b=e.target.closest('[data-who]');if(!b)return;lsSet('ut-me-'+TID,b.dataset.who);$('#who-bg').hidden=true;updateMe();toast(`Szia, ${pname(b.dataset.who)}!`)};
 $('#who-skip').onclick=()=>{whoSkipped=true;$('#who-bg').hidden=true};
-$('#me-change').onclick=()=>{try{localStorage.removeItem('ut-me-'+TID)}catch(e){}whoSkipped=false;if(!trip.people.length){toast('Előbb add hozzá az utazókat.');return}askWho()};
+$('#me-change').onclick=()=>{if(!trip.people.length){toast('Előbb add hozzá az utazókat.');return}askWho(true)};
+$('#me-chip').onclick=()=>askWho(true);
+$('#who-bg').onclick=e=>{if(e.target.id==='who-bg')$('#who-bg').hidden=true};
 $('#inv-copy').onclick=async()=>{try{await navigator.clipboard.writeText(tripLink());toast('Link kimásolva, küldd el a csoportnak')}catch(e){$('#inv-link').select();toast('Jelöld ki és másold ki a linket')}};
 if(navigator.share){$('#inv-share').hidden=false;$('#inv-share').onclick=()=>navigator.share({title:trip.name||'Útitárs',text:`Csatlakozz: ${trip.name||'utazás'}`,url:tripLink()}).catch(()=>{})}
 $('#go-home').onclick=()=>{location.hash=''};
