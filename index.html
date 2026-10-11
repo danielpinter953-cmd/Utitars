@@ -153,6 +153,8 @@ body.landing header.top,body.landing #main,body.landing nav.tabs{display:none!im
 .item.cur{background:var(--accent-soft)}
 .settlebtn{flex-basis:100%;margin-top:4px;background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
 .settlebtn.armed{background:var(--accent);color:var(--accent-ink)}
+.by{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-top:3px}
+.by .av{width:18px;height:18px;font-size:10px}
 .prow{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
 .prow:first-child{border-top:0}
 .itrow{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
@@ -707,7 +709,7 @@ function renderStops(){
       </div>
       <div class="list">${rows.map(({s,i,meta,away})=>`<div class="stop">
         <div class="time"><span class="stopno">${i+1}</span>${s.time?`<br>${esc(s.time)}`:''}</div>
-        <div style="min-width:0"><div style="font-weight:600;overflow-wrap:anywhere">${esc(s.title)}</div>${s.note?`<div class="muted" style="font-size:13px">${esc(s.note)}</div>`:''}${s.address?`<div class="muted" style="font-size:12px">${esc(s.address)}</div>`:''}
+        <div style="min-width:0"><div style="font-weight:600;overflow-wrap:anywhere">${esc(s.title)}</div>${s.note?`<div class="muted" style="font-size:13px">${esc(s.note)}</div>`:''}${s.address?`<div class="muted" style="font-size:12px">${esc(s.address)}</div>`:''}${s.createdBy&&person(s.createdBy)?`<div class="by">${av(s.createdBy)}<span>${esc(pname(s.createdBy))} tette be</span></div>`:''}
         ${meta.length?`<div class="dist">${meta.join(' · ')}</div>`:''}${away?`<div class="warn">Ezzel távolodsz a céltól, utána vissza kell fordulni</div>`:''}
         <div class="inline" style="gap:6px;margin-top:2px"><a class="link" style="font-size:13px" href="${esc(s.mapsUrl||(hasXY(s)?'https://www.google.com/maps/search/?api=1&query='+s.lat+','+s.lng:mapsSearch(s.title,placeFor(d))))}" target="_blank" rel="noopener">Térkép ↗</a>${hasXY(s)?`<span class="pill" style="font-size:11px;padding:1px 7px;${s.src==='exact'?'background:var(--accent-soft);color:var(--ink)':''}">${s.src==='exact'?'pontos hely':'becsült hely'}</span>`:''}</div></div>
         <div class="sact">
@@ -970,7 +972,8 @@ async function commitStop(fields){
     if((old.day||1)!==fields.day)data.order=Date.now();
     ok=await save(()=>db.collection('stops').doc(old.id).set(JSON.parse(JSON.stringify(data))),'Megálló mentve');
   }else{
-    ok=await save(()=>db.collection('stops').doc().set(JSON.parse(JSON.stringify({...fields,createdAt:Date.now(),order:Date.now()}))),'Megálló hozzáadva');
+    const me=lsGet('ut-me-'+TID);
+    ok=await save(()=>db.collection('stops').doc().set(JSON.parse(JSON.stringify({...fields,createdBy:person(me)?me:null,createdAt:Date.now(),order:Date.now()}))),'Megálló hozzáadva');
   }
   if(ok)resetStopForm();
 }
